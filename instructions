@@ -1,0 +1,4 @@
+$ kubectl create -f k8s/
+$ kubectl run -it curler --image viejo/curl sh
+
+# curl front/service/COLOR
