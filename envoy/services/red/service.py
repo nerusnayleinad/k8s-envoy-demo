@@ -4,6 +4,10 @@ import socket
 import os
 import sys
 import requests
+import argparse
+
+from opencensus.ext.stackdriver import trace_exporter as stackdriver_exporter
+import opencensus.trace.tracer
 
 app = Flask(__name__)
 
@@ -22,6 +26,17 @@ TRACE_HEADERS_TO_PROPAGATE = [
     "uber-trace-id"
 ]
 
+def initialize_tracer(project_id):
+    exporter = stackdriver_exporter.StackdriverExporter(
+        project_id=project_id
+    )
+    tracer = opencensus.trace.tracer.Tracer(
+        exporter=exporter,
+        sampler=opencensus.trace.tracer.samplers.AlwaysOnSampler()
+    )
+
+    return tracer
+
 def render_page():
     return ('<body bgcolor="{}"><span style="color:white;font-size:4em;">\n'
             'Hello from {} (hostname: {} resolvedhostname:{})\n</span></body>\n'.format(
@@ -32,10 +47,16 @@ def render_page():
 
 @app.route('/service/<service_color>')
 def service(service_color):
-    return render_page()
+    tracer = app.config['TRACER']
+    tracer.start_span(name='service')
+    result = render_page()
+    tracer.end_span()
+    return result
 
 @app.route('/trace/<service_color>')
 def trace(service_color):
+    tracer = app.config['TRACER']
+    tracer.start_span(name='trace')
     headers = {}
     ## For Propagation test ##
     # Call service 'green' from service 'blue'
@@ -50,7 +71,19 @@ def trace(service_color):
             if header in request.headers:
                 headers[header] = request.headers[header]
         ret = requests.get("http://localhost:9000/trace/red", headers=headers)
-    return render_page()
+    result = render_page()
+    tracer.end_span()
+    return result
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--project_id', help='Project ID you want to access.', required=True)
+    args = parser.parse_args()
+
+    tracer = initialize_tracer(args.project_id)
+    app.config['TRACER'] = tracer
     app.run(host='0.0.0.0', port=8080, debug=True)
